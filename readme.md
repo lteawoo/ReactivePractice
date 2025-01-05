@@ -229,3 +229,73 @@ public class Example {
 ### Subscription
 ![img_4.png](img_4.png)
 * 7번 일반적으로 Java는 메서드 호출 시 예외를 호출한 쪽으로 던지는데, 리액티브 스트림즈에서는 해당 예외를 onError Signal과 함께 보내도록 규정되어 있음
+
+
+# Project Reactor
+## Reactor
+![img_5.png](img_5.png)
+Publisher-Subscriber 모델을 기반으로 한 Non-Blocking 완벽한 지원, Java 함수형 API을 통해 상호작용함
+* Publisher: 데이터를 생성하고 발행하는 역할
+* Subscriber: Publisher로부터 데이터를 구독하고 처리
+
+두 가지 주요 Publisher를 제공
+* Mono: 0 또는 1개의 아이템을 발행
+* Flux: 0에서 N개의 아이템을 발행
+
+Backpressure ready network
+* Publisher로 부터 전달 받은 데이터를 처리 시 과부하가 걸리지 않게 제어하는 개념
+
+### Mono
+* 단일 데이터, 빈 결과를 처리할 때 사용
+* 예: 단일 HTTP 요청, DB에서 하나의 레코드 조회
+```java
+public class MonoExample {
+    public static void main(String[] args) {
+        Mono<String> mono = Mono.just("Hello Reactor");
+        mono.map(String::toUpperCase)
+                .subscribe(System.out::println);
+    }
+} 
+```
+### Flux
+* 여러 데이터 처리
+* 예: 스트리밍 데이터, 다중 레코드 처리, 이벤트 스트림 등 
+```java
+public class FluxExample {
+    public static void main(String[] args) {
+        Flux<String> flux = Flux.just("Hello", "Reactor", "World");
+        flux.map(String::toLowerCase)
+                .subscribe(System.out::println);
+    }
+}
+```
+## 마블다이어그램
+* 마블 다이어그램은 리액티브 스트림의 동작을 시각적으로 표현한 것
+* 시간에 따른 데이터 흐름을 화살표와 기호로 나타냄
+* 각 연산자(Operator)가 데이터 스트림에 어떤 영향을 미치는지 이해하는 데 유용함
+![img_6.png](img_6.png)
+1. Mono(Publisher)의 타임라인(Upstream)
+2. emit하는 데이터, 시간 흐름으로 표현하기 때문에 가장 왼쪽의 데이터가 가장 먼저 emit된 데이터
+3. Mono Sequence의 종료(onComplete Signal)
+4. emit된 데이터를 처리하는 operator
+5. operator를 거쳐 변환된 데이터의 타임라인 (Downstream)
+6. 에러 혹은 강제 종료가 발생한다면 'X'로 표기함(onError Signal)
+```java
+public class FluxExample2 {
+    public static void main(String[] args) {
+        Flux<String> flux = Mono.just("Hello")
+                .concatWith(Flux.just("World", "ConcatWith"));
+        flux.subscribe(System.out::println);
+    }
+}
+```
+![img_7.png](img_7.png)
+* Mono의 concatWith operator이기 때문에 operator 범위 밖의 타임라인엔 한개의 데이터가 emit
+* 범위 안의 타임라인엔 Mono, Flux 상관 없다.
+* 두 개의 데이터 소스를 연결하여 하나의 Flux가 되어 차례 대로 emit
+## Cold Sequence & Hot Sequence
+## Backpressure
+## Scheduler
+## Context
+## Debugging
+## Operators
