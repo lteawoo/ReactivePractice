@@ -293,8 +293,52 @@ public class FluxExample2 {
 * Mono의 concatWith operator이기 때문에 operator 범위 밖의 타임라인엔 한개의 데이터가 emit
 * 범위 안의 타임라인엔 Mono, Flux 상관 없다.
 * 두 개의 데이터 소스를 연결하여 하나의 Flux가 되어 차례 대로 emit
-## Cold Sequence & Hot Sequence
+## Cold Sequence
+* 구독(subscribe)이 발생할 때마다 데이터 스트림이 처음부터 시작
+* 각 구독자는 독립적인 데이터 스트림을 받습니다.
+* 예: 파일을 읽는 작업, 데이터베이스 쿼리 결과 스트림.
+```java
+public class ColdSequence {
+    public static void main(String[] args) throws InterruptedException {
+        List<String> input = Arrays.asList("Apple", "Banana", "Kiwi");
+        Flux<String> cold = Flux.fromIterable(input)
+                .map(String::toUpperCase);
+        cold.subscribe(System.out::println);
+        System.out.println("=============================================");
+        Thread.sleep(3000);
+        cold.subscribe(System.out::println);
+    }
+}
+```
+## Hot Sequence
+* 데이터 스트림은 구독과 관계없이 이미 진행 중일 수 있음
+* 구독자는 스트림 중간부터 데이터를 받을 수 있습니다.
+* 예: 실시간 주식 가격, 이벤트 스트림.
+```java
+public class HotSequence {
+    public static void main(String[] args) throws InterruptedException {
+        List<String> input = Arrays.asList("Apple", "Banana", "Kiwi", "Pear", "Mango", "Orange");
+        Flux<String> hot = Flux.fromIterable(input)
+                .delayElements(Duration.ofSeconds(1))
+                .share();
+
+        hot.subscribe(fruit -> System.out.println(LocalDateTime.now().format(DateTimeFormatter.ofPattern("mm:ss")) + " (1) Fruit call: " + fruit));
+
+        Thread.sleep(2500);
+
+        hot.subscribe(fruit -> System.out.println(LocalDateTime.now().format(DateTimeFormatter.ofPattern("mm:ss")) + " (2) Fruit call: " + fruit));
+
+        Thread.sleep(4000);
+
+    }
+}
+```
 ## Backpressure
+Backpressure는 Subscriber가 Publisher에게 데이터 발행 속도를 조절하도록 요청하는 메커니즘, Reactor는 기본적으로 Backpressure를 지원하며, onBackpressureBuffer, onBackpressureDrop 등의 연산자를 제공
+* Request(n): Subscriber가 Publisher에게 n개의 아이템을 요청
+* Buffer: 데이터를 버퍼링해 처리 속도를 조절
+* Drop: 처리할 수 없는 데이터는 버림
+* Error: Backpressure를 처리할 수 없을 때 오류를 발생
 ## Scheduler
 ## Context
 ## Debugging
