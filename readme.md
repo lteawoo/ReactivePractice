@@ -335,10 +335,151 @@ public class HotSequence {
 ```
 ## Backpressure
 Backpressure는 Subscriber가 Publisher에게 데이터 발행 속도를 조절하도록 요청하는 메커니즘, Reactor는 기본적으로 Backpressure를 지원하며, onBackpressureBuffer, onBackpressureDrop 등의 연산자를 제공
+### 전략
 * Request(n): Subscriber가 Publisher에게 n개의 아이템을 요청
-* Buffer: 데이터를 버퍼링해 처리 속도를 조절
 * Drop: 처리할 수 없는 데이터는 버림
-* Error: Backpressure를 처리할 수 없을 때 오류를 발생
+* Error: 버퍼가 가득 찰 경우 에러
+* Latest: 최근 데이터부터 버퍼에 채움
+* Buffer: 버퍼안에 있는 데이터부터 Drop
+### 방법
+1. 데이터 개수 제어
+```java
+public class BackPressureRequest {
+    public static void main(String[] args) {
+        Flux.range(1, 5)
+                .doOnRequest(d -> System.out.println("request cnt: " + d))
+                .subscribe(new BaseSubscriber<>() {
+                    @Override
+                    protected void hookOnSubscribe(Subscription subscription) {
+                        request(1);
+                    }
+
+                    @Override
+                    protected void hookOnNext(Integer value) {
+                        try {
+                            Thread.sleep(1000L);
+                            System.out.println("hookOnNext: " + value);
+                            request(1);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                });
+    }
+}
+```
+요청 개수를 BaseSubscriber를 이용하여 제어할 수 있다.
+2. Backpressure 전략 사용
+* Error
+```java
+public class BackPressureError {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.interval(Duration.ofMillis(1)) // 0.001초 emit
+                .onBackpressureError()
+                .doOnNext(d -> System.out.println("doOnNext: " + d)) // Publisher가 emit한 데이터를 확인하거나 추가 동작 정의, 디버깅용도로 사용
+                .publishOn(Schedulers.parallel())
+                .subscribe(d -> {
+                            try {
+                                Thread.sleep(5L); // 0.005초 처리
+                            } catch (InterruptedException e) {}
+                            System.out.println("onNext: " + d);
+                        },
+                        e -> System.out.println("onError: " + e));
+
+        Thread.sleep(2000);
+    }
+}
+```
+* Drop
+```java
+public class BackPressureDrop {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.interval(Duration.ofMillis(1)) // 0.001초 emit
+                .onBackpressureDrop(drop -> System.out.println("drop: " + drop))
+                .doOnNext(d -> System.out.println("doOnNext: " + d)) // Publisher가 emit한 데이터를 확인하거나 추가 동작 정의, 디버깅용도로 사용
+                .publishOn(Schedulers.parallel())
+                .subscribe(d -> {
+                            try {
+                                Thread.sleep(5L); // 0.005초 처리
+                            } catch (InterruptedException e) {}
+                            System.out.println("onNext: " + d);
+                        },
+                        e -> System.out.println("onError: " + e));
+
+        Thread.sleep(2000);
+    }
+}
+```
+* Latest
+```java
+public class BackPressureLatest {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.interval(Duration.ofMillis(1)) // 0.001초 emit
+                .onBackpressureLatest()
+                .doOnNext(d -> System.out.println("doOnNext: " + d)) // Publisher가 emit한 데이터를 확인하거나 추가 동작 정의, 디버깅용도로 사용
+                .publishOn(Schedulers.parallel())
+                .subscribe(d -> {
+                            try {
+                                Thread.sleep(5L); // 0.005초 처리
+                            } catch (InterruptedException e) {}
+                            System.out.println("onNext: " + d);
+                        },
+                        e -> System.out.println("onError: " + e));
+
+        Thread.sleep(2000);
+    }
+}
+```
+* Buffer - DROP_LATEST
+최근 버퍼에 채워진 데이터 drop
+```java
+public class BackPressureDropLatest {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.interval(Duration.ofMillis(300L))
+                .doOnNext(d -> System.out.println("emmited by original: " + d))
+                .onBackpressureBuffer(2,
+                        d -> System.out.println("overflow and dropped: " + d),
+                        BufferOverflowStrategy.DROP_LATEST)
+                .doOnNext(d -> System.out.println("emmited by buffer: " + d))
+                .publishOn(Schedulers.parallel(), false, 1)
+                .subscribe(d -> {
+                            try {
+                                Thread.sleep(1000L);
+                            } catch (InterruptedException e) {
+                            }
+                            System.out.println("onNext: " + d);
+                        },
+                        e -> System.out.println("onError: " + e));
+
+        Thread.sleep(3000L);
+    }
+}
+```
+* Buffer - DROP_OLDEST
+버퍼에서 가장 오래된 데이터를 Drop
+```java
+public class BackPressureDropOldest {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.interval(Duration.ofMillis(300L))
+                .doOnNext(d -> System.out.println("emmited by original: " + d))
+                .onBackpressureBuffer(2,
+                        d -> System.out.println("overflow and dropped: " + d),
+                        BufferOverflowStrategy.DROP_OLDEST)
+                .doOnNext(d -> System.out.println("emmited by buffer: " + d))
+                .publishOn(Schedulers.parallel(), false, 1)
+                .subscribe(d -> {
+                            try {
+                                Thread.sleep(1000L);
+                            } catch (InterruptedException e) {
+                            }
+                            System.out.println("onNext: " + d);
+                        },
+                        e -> System.out.println("onError: " + e));
+
+        Thread.sleep(3000L);
+    }
+}
+```
 ## Scheduler
 ## Context
 ## Debugging
