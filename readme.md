@@ -480,7 +480,163 @@ public class BackPressureDropOldest {
     }
 }
 ```
+## Sinks
+* 프로그래밍 방식으로 데이터 스트림을 생성하고 제어할 수 있게 한다.
+* Sinks는 Reactor의 Mono와 Flux를 생성하고 관리하는 데 유용하다
+* 특히 외부 이벤트를 리액티브 스트림으로 변환할 때 매우 강력함
+### 역할
+* 데이터 발행: 프로그래밍 방식으로 Mono 또는 Flux에 데이터를 발행
+* 스트림 제어: 스트림의 시작, 완료, 오류를 명시적으로 제어
+* 다중 구독 지원: 여러 Subscriber가 동일한 Sinks를 구독
+### 기존 create를 이용한 싱글스레드 기반 signal 전송
+```java
+public class CreateOperator {
+    public static void main(String[] args) throws InterruptedException {
+        int tasks = 6;
+        Flux.create((FluxSink<String> sink) -> {
+                    IntStream.range(1, tasks)
+                            .forEach(n -> sink.next(doTasks(n)));
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnNext(n -> System.out.println(Thread.currentThread().getName() + " create: " + n))
+                .publishOn(Schedulers.parallel())
+                .map(res -> res + " success!")
+                .doOnNext(n -> System.out.println(Thread.currentThread().getName() + " map: " + n))
+                .publishOn(Schedulers.parallel())
+                .subscribe(n -> System.out.println(Thread.currentThread().getName() + " subscribe: " + n));
+
+        Thread.sleep(1000L);
+    }
+
+    private static String doTasks(int taskNum) {
+        return "task " + taskNum + " result";
+    }
+}
+```
+* 기존에도 프로그래밍 방식으로 Signal을 전송할 수 있었다.
+* 또한 Sequence를 단계적으로 나누어 여러 개의 스레드에서 처리할 수도 있었다.
+여러 개의 스레드에서 각각의 전혀 다른 작업들을 처리한 다음 처리 결과를 반환하려 한다면 Sinks를 사용하면 된다.
+```java
+public class SinkExample1 {
+    public static void main(String[] args) throws InterruptedException {
+        int tasks = 6;
+
+        Sinks.Many<String> unicastSink = Sinks.many().unicast().onBackpressureBuffer();
+        IntStream.range(1, tasks)
+                .forEach(n -> {
+                    try {
+                        new Thread(() -> {
+                            unicastSink.emitNext(doTasks(n), Sinks.EmitFailureHandler.FAIL_FAST);
+                            System.out.println(Thread.currentThread().getName() + " emited: " + n);
+                        }).start();
+                        Thread.sleep(100L);
+                    } catch (InterruptedException e) {
+                        System.out.println("e.getMessage() = " + e.getMessage());
+                    }
+                });
+
+        unicastSink.asFlux()
+                .publishOn(Schedulers.parallel())
+                .map(res -> res + " success!")
+                .doOnNext(n -> System.out.println(Thread.currentThread().getName() + " map: " + n))
+                .publishOn(Schedulers.parallel())
+                .subscribe(n -> System.out.println(Thread.currentThread().getName() + " subscribe: " + n));
+
+        Thread.sleep(1000L);
+    }
+
+    private static String doTasks(int taskNum) {
+        return "task " + taskNum + " result";
+    }
+}
+```
+* doTasks() 메서드가 루프를 돌 때마다 새로운 스레드에서 실행됨
+* 프로그래밍 방식으로 Signal을 전송할 수 있으며, 스레드 안전성을 보장 받을 수 있다.
+### Sinks.one
+```java
+public class SinksOne {
+    public static void main(String[] args) {
+        Sinks.One<Object> one = Sinks.one();
+        Mono<Object> mono = one.asMono();
+
+        one.emitValue("Hello Reactor", Sinks.EmitFailureHandler.FAIL_FAST);
+        one.emitValue("Hi Reactor", Sinks.EmitFailureHandler.FAIL_FAST);
+
+        mono.subscribe(System.out::println);
+        mono.subscribe(System.out::println);
+    }
+}
+```
+* One 명세: 한 건의 데이터를 프로그래밍 방식으로 emit하는 역할을 함, Mono 방식으로 Subscriber가 소비할 수 있도록 해 주는 사양
+* emitValue를 통해 emit 도중 에러를 어떻게 처리할 건지 정의
+### Sinks.many
+1. Unicast
+```java
+public class SinksManyUnicast {
+    public static void main(String[] args) {
+
+        Sinks.Many<Integer> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Flux<Integer> flux = sink.asFlux();
+
+        sink.emitNext(1, Sinks.EmitFailureHandler.FAIL_FAST);
+        sink.emitNext(2, Sinks.EmitFailureHandler.FAIL_FAST);
+
+        flux.subscribe(System.out::println);
+
+        sink.emitNext(3, Sinks.EmitFailureHandler.FAIL_FAST);
+
+        // Sinks.many().unicast() sinks only allow a single Subscriber
+        // flux.subscribe(System.out::println);  
+    }
+}
+```
+* 이름 그대로 하나의 Subscriber에게만 전달함 두번 구독 할 시 에러
+2. Multicast
+```java
+public class SinksManyMulticast {
+    public static void main(String[] args) {
+
+        Sinks.Many<Integer> sink = Sinks.many().multicast().onBackpressureBuffer();
+        Flux<Integer> flux = sink.asFlux();
+
+        sink.emitNext(1, Sinks.EmitFailureHandler.FAIL_FAST);
+        sink.emitNext(2, Sinks.EmitFailureHandler.FAIL_FAST);
+
+        // sinks -> hot Publisher, onBackPressureBuffer -> Warm up의 의미를 가지는 Hot Sequence
+        flux.subscribe(d -> System.out.println("sub1: " + d));
+
+        flux.subscribe(d -> System.out.println("sub2: " + d));
+
+        sink.emitNext(3, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+}
+```
+* 다수의 Subscriber에게 데이터를 emit
+3. Multicast Replay
+```java
+public class SinksManyMulticastReplay {
+    public static void main(String[] args) {
+
+        Sinks.Many<Integer> sink = Sinks.many().replay().limit(2);
+        Flux<Integer> flux = sink.asFlux();
+
+        sink.emitNext(1, Sinks.EmitFailureHandler.FAIL_FAST);
+        sink.emitNext(2, Sinks.EmitFailureHandler.FAIL_FAST);
+        sink.emitNext(3, Sinks.EmitFailureHandler.FAIL_FAST);
+        
+        flux.subscribe(d -> System.out.println("sub1: " + d));
+
+        sink.emitNext(4, Sinks.EmitFailureHandler.FAIL_FAST);
+
+        flux.subscribe(d -> System.out.println("sub2: " + d));
+    }
+}
+```
+* 이름 그대로 emit된 데이터를 다시 replay하여 구독 전에 이미 emit된 데이터라도 전달 할 수 있게 함
+* limit은 가장 나중에 emit된 데이터부터 다시 전달하는 기능
+* 카세트의 replay 버튼과 유사함
 ## Scheduler
+
 ## Context
 ## Debugging
 ## Operators
