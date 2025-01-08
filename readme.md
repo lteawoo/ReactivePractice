@@ -636,7 +636,34 @@ public class SinksManyMulticastReplay {
 * limit은 가장 나중에 emit된 데이터부터 다시 전달하는 기능
 * 카세트의 replay 버튼과 유사함
 ## Scheduler
+* 이를 통해 작업의 실행 컨텍스트(예: 스레드 풀, 스레드 전략)를 제어
+* Scheduler는 리액티브 프로그래밍에서 비동기 및 논블로킹 처리를 구현하는 데 필수적인 역할을 함
+### 역할
+1. 스레드 관리: 작업을 실행할 스레드를 지정하고 관리
+2. 비동기 실행: 작업을 비동기적으로 실행
+3. 리소스 제어: 스레드 풀의 크기와 동작 방식을 제어해 리소스를 효율적으로 사용
+### Schedulers.immediate()
+* 현재 스레드에서 작업을 즉시 수행
+```java
+public class SchedulersImmediate {
+    public static void main(String[] args) throws InterruptedException {
+        Flux.just(1, 2, 3, 4)
+                .publishOn(Schedulers.parallel())
+                .filter(d -> d % 2 == 0)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + " filter: " + d))
+                .publishOn(Schedulers.immediate())
+                .map(d -> d * 2)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + " map: " + d))
+                .subscribe(d -> System.out.println(Thread.currentThread().getName() +  " onNext: " + d));
+
+        Thread.sleep(1000);
+    }
+}
+```
+### Schedulers.single()
 
 ## Context
+
 ## Debugging
+
 ## Operators
