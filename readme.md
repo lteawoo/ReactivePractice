@@ -642,7 +642,7 @@ public class SinksManyMulticastReplay {
 1. 스레드 관리: 작업을 실행할 스레드를 지정하고 관리
 2. 비동기 실행: 작업을 비동기적으로 실행
 3. 리소스 제어: 스레드 풀의 크기와 동작 방식을 제어해 리소스를 효율적으로 사용
-### Schedulers.immediate()
+### Schedules.immediate()
 * 현재 스레드에서 작업을 즉시 수행
 ```java
 public class SchedulersImmediate {
@@ -660,10 +660,104 @@ public class SchedulersImmediate {
     }
 }
 ```
-### Schedulers.single()
+### Schedules.single()
+* 첫 호출에서 생성된 스레드를 사용
+```java
+public class SchedulersSingle {
+    public static void main(String[] args) throws InterruptedException {
+        doTask("task1")
+                .subscribe(d -> System.out.println(Thread.currentThread().getName() + " onNext: " + d));
 
+        doTask("task2")
+                .subscribe(d -> System.out.println(Thread.currentThread().getName() + " onNext: " + d));
+
+        Thread.sleep(1000);
+    }
+
+    private static Flux<Integer> doTask(String name) {
+        return Flux.just(1, 2, 3, 4)
+                .publishOn(Schedulers.single())
+                .filter(d -> d > 3)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + ", " + name + ", filter: " + d))
+                .map(d -> d * 10)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + ", " + name + " map: " + d));
+    }
+}
+
+```
+### Schedules.newSingle()
+* 호출할 때마다 새로운 스레드를 생성하여 사용
+```java
+public class SchedulersNewSingle {
+    public static void main(String[] args) throws InterruptedException {
+        doTask("task1")
+                .subscribe(d -> System.out.println(Thread.currentThread().getName() + " onNext: " + d));
+
+        doTask("task2")
+                .subscribe(d -> System.out.println(Thread.currentThread().getName() + " onNext: " + d));
+
+        Thread.sleep(1000);
+    }
+
+    private static Flux<Integer> doTask(String name) {
+        return Flux.just(1, 2, 3, 4)
+                .publishOn(Schedulers.newSingle("new-single", true)) // 데몬스레드 여부, 주 스레드가 종료되면 자동 종료
+                .filter(d -> d > 3)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + ", " + name + ", filter: " + d))
+                .map(d -> d * 10)
+                .doOnNext(d -> System.out.println(Thread.currentThread().getName() + ", " + name + " map: " + d));
+    }
+}
+```
+### Schedules.boundedElastic()
+* Blocking I/O 작업을 효과적으로 처리, 긴 시간이 필요한 Blocking I/O 작업이 포함된 경우 다른 Non-Blocking 처리에 받해되지 않도록 이용 
+* ExecutorService 기반의 스레드풀을 이용
+* CPU 코어수 * 10만큼의 스레드를 생성하여, 최대 100,000개의 작업이 큐에서 대기 할 수 있다.
+* HTTP 요청과 같은 Blocking I/O 작업을 통해 전달받은 데이터를 데이터 소스로 사용할 때 유용
+### Schedules.parallel()
+* CPU 코어수 만큼의 스레드를 생성
+* Non-Blocking I/O에 최적화
+### Schedules.fromExecutorService()
+* 기존에 ExecutorService를 이용하여 사용
+### Schedules.newXXX()
+* newSingle, newBoundedElastic, newParallel 과 같은 메서드들이 존재
+* 기본적인 single()과 같은건 디폴트 Scheduler 인스턴스를 사용
+* new메서드들은 새로운 Scheduler 인스턴스를 생성하여 사용
+* 스레드 이름, 디폴트 스레드 개수, 스레드 유휴시간, 데몬스레드로의 동작 여부 등을 커스텀
 ## Context
+* Context는 Project Reactor에서 리액티브 스트림 내에서 전역적으로 사용할 수 있는 키-값 저장소
+* Reactor의 Mono와 Flux는 불변(immutable)하고 함수형 프로그래밍 스타일을 따르기 때문에, 전역 상태를 공유하기 어려운 부분이 있음
+* Context는 이러한 문제를 해결하기 위해 도입된 기능으로, 스트림 내에서 데이터를 전달하고 공유할 수 있게 해줌
+### 예시
+* ServletContext: Servlet이 Servlet Container와 통신하기 위해 필요한 정보를 제공하는 인터페이스
+* ApplicationContext: Spring Framework에서 Spring Bean 객체의 정보를 제공
+* SecurityContext: Spring Security에서 SecurityContextHolder를 통해 관리되며, 사용자 인증정보를 제공하는 인터페이스
+### 역할
+* 데이터 전달: 스트림 내에서 데이터를 전역적으로 전달할 수 있다.
+* 상태 공유: 여러 연산자 또는 Subscriber 간에 상태를 공유할 수 있다.
+* 컨텍스트 기반 작업: 로깅, 트랜잭션 관리, 인증 정보 전달 등에 사용 됨.
+### 특징
+* 불변성(Immutable): Context는 불변 객체로, 수정할 때마다 새로운 Context가 생성(구독이 발생할 때마다 구독과 연결되어 새로 생성)
+* 스레드 안전성(Thread-Safe): 불변성 덕분에 스레드 간에 안전하게 공유 됨
+* 계층적 구조: Context는 계층적 구조를 가지며, 상위 Context에서 하위 Context로 데이터를 전달할 수 있다.
+### 사용법
+* Context는 Mono 또는 Flux의 contextWrite 메서드를 통해 설정
+* deferContextual 또는 transformDeferredContextual을 통해 읽을 수 있다.
+```java
+public class ContextExample2 {
+    public static void main(String[] args) throws InterruptedException {
+        String key1 = "company";
+        String key2 = "name";
 
-## Debugging
+        Mono.deferContextual(ctx -> Mono.just(ctx.get(key1))) // Context에는 apple, bill이 존재, apple을 반환
+                .publishOn(Schedulers.parallel())
+                .contextWrite(ctx -> ctx.put(key2, "bill"))
+                .transformDeferredContextual((mono, ctx) -> mono.map(d -> d + ", " + ctx.getOrDefault(key2, "steve"))) // 이 시점에 stream의 context에는 apple만 존재 그러므로 apple, steve가 반환
+                .contextWrite(ctx -> ctx.put(key1, "apple"))
+                .subscribe(d -> System.out.println("onNext: " + d));
 
-## Operators
+        Thread.sleep(1000);
+    }
+}
+```
+* Context의 전파 방식은 Stack과 유사하며 LIFO 방식으로 처리 된다.
